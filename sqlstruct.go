@@ -232,7 +232,10 @@ func QueryRow[T any](query string, args ...any) (stru T, err error) {
 		err = joinOrErr(err, rows.Close())
 	}()
 
-	rows.Next()
+	if !rows.Next() {
+		err = sql.ErrNoRows
+		return
+	}
 	err = Scan[T](&stru, rows)
 	return
 }
@@ -379,6 +382,7 @@ func doScan[T any](dest *T, rows Rows, alias string) error {
 }
 
 func cols[T any]() []string {
+	// ToDo: use reflect.TypeFor here, starting with Go 1.22 (?)
 	var v = reflect.TypeOf((*T)(nil))
 	fields := getFieldInfo(v.Elem())
 

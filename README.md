@@ -14,7 +14,7 @@ Documentation can be found at http://godoc.org/github.com/kisielk/sqlstruct
 
 This package allows linking a struct and its database-counterpart, which means that `SELECT`-queries automatically reflect changes made to the datastructure by injecting the required columns into the query.
 
-This works by extracting the exported fields of a struct, converting their names and inserting them into the given query.
+This works by extracting the exported fields of a struct, converting their names and inserting them into the given query. Just write the queries as normal using the autocomplete language injections provide and let your struct-definitions and sqlstruct take care of the columns.
 
 ### Basics
 
