@@ -2,7 +2,10 @@
 
 sqlstruct provides some convenience functions for using structs with go's database/sql package
 
-Documentation can be found at http://godoc.org/github.com/kisielk/sqlstruct
+it is fully based on [kisielk](https://github.com/kisielk)s package and was expanded by me. I basically just add functionality I personally find
+convenient.
+
+Documentation can be found at http://godoc.org/github.com/ByteSizedMarius/sqlstruct
 
 ## Goals of this fork
 

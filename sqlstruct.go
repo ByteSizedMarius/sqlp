@@ -240,6 +240,24 @@ func QueryRow[T any](query string, args ...any) (stru T, err error) {
 	return
 }
 
+func QueryInts(query string, args ...any) (results []int, err error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+
+	var result []int
+	for rows.Next() {
+		var num int
+		err = rows.Scan(&num)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, num)
+	}
+	return result, nil
+}
+
 func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
 		err = errors.New("sqlstruct: database not set")
