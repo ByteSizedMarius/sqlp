@@ -113,7 +113,8 @@ var (
 
 	db *sql.DB
 
-	QueryReplace = "*"
+	QueryReplace   = "*"
+	InQueryReplace = "(*)"
 )
 
 type (
@@ -258,6 +259,72 @@ func QueryInts(query string, args ...any) (results []int, err error) {
 	return result, nil
 }
 
+func In(query string, args ...any) error {
+	if !strings.Contains(query, InQueryReplace) {
+		panic("sqlstruct: in query not found")
+	}
+
+	doInQuery(query, args)
+	_, err := db.Exec(query, args...)
+	return err
+}
+
+func doInQuery(query string, args []any) (string, []any) {
+	// for now, we expect that there is only one of these.
+	if strings.Count(query, InQueryReplace) > 1 {
+		panic("sqlstruct: only one in query is supported")
+	}
+
+	// if the IN is the only argument, we can just replace it
+	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
+		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(args))+")", 1)
+		return newQuery, args
+	}
+
+	// otherwise, get the index of the list in the argument list
+	// flatten it and put it at the correct index
+
+	// get the index of the inQueryReplace
+	index := strings.Index(query, InQueryReplace) + 1
+
+	// get the index of the argument in the argument list of the list for the IN
+	argIndex := strings.Count(query[:index], "?")
+
+	// get and replace the argument by flattening it
+	if len(args) <= argIndex {
+		panic("sqlstruct: not enough arguments for in query")
+	}
+	argList := toAny(args[argIndex])
+	newArgs := replaceWithFlatten(args, argList, argIndex)
+
+	// edit the query
+	newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(argList))+")", 1)
+	return newQuery, newArgs
+}
+
+func replaceWithFlatten(first []any, second []any, index int) []any {
+	result := make([]any, 0, len(first)+len(second)-1)
+	result = append(result, first[:index]...)
+	result = append(result, second...)
+	result = append(result, first[index+1:]...)
+	return result
+}
+
+func inQuery(amountOfValues int) string {
+	attrs := strings.Repeat(", ?", amountOfValues)
+	attrs = strings.TrimPrefix(attrs, ", ")
+	return attrs
+}
+
+func toAny(s any) []any {
+	v := reflect.ValueOf(s)
+	r := make([]any, v.Len())
+	for i := 0; i < v.Len(); i++ {
+		r[i] = v.Index(i).Interface()
+	}
+	return r
+}
+
 func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
 		err = errors.New("sqlstruct: database not set")
@@ -265,6 +332,9 @@ func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	}
 
 	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
+	if strings.Contains(query, InQueryReplace) {
+		doInQuery(query, args)
+	}
 
 	rows, err = db.Query(
 		query,
@@ -340,7 +410,7 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 		if f.Anonymous && f.Type.Kind() == reflect.Struct {
 			// Check what is struct not sql Null type like sql.NullString sql.NullBool sql.Null...
 			scannerType := reflect.TypeOf((*Scanner)(nil)).Elem()
-			if !reflect.PtrTo(f.Type).Implements(scannerType) {
+			if !reflect.PointerTo(f.Type).Implements(scannerType) {
 				for k, v := range getFieldInfo(f.Type) {
 					finfo[k] = append([]int{i}, v...)
 				}
