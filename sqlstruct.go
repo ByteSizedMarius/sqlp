@@ -241,6 +241,7 @@ func QueryRow[T any](query string, args ...any) (stru T, err error) {
 	return
 }
 
+// Deprecated: Use QueryBasic instead.
 func QueryInts(query string, args ...any) (results []int, err error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -255,6 +256,25 @@ func QueryInts(query string, args ...any) (results []int, err error) {
 			return nil, err
 		}
 		result = append(result, num)
+	}
+	return result, nil
+}
+
+// QueryBasic is Query, but for basic data types.
+func QueryBasic[T string | int | int64 | float32 | float64](query string, args ...any) (results []T, err error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+
+	var result []T
+	for rows.Next() {
+		var data T
+		err = rows.Scan(&data)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, data)
 	}
 	return result, nil
 }
