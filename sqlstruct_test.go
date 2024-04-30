@@ -37,11 +37,6 @@ type testType struct {
 	EmbeddedType
 }
 
-type testType2 struct {
-	FieldA   string `sql:"field_a"`
-	FieldSec string `sql:"field_sec"`
-}
-
 type testType3 struct {
 	FieldA string `sql:"field_a"`
 	FieldB string `sql:"-"`       // Ignored
