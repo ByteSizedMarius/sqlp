@@ -9,8 +9,6 @@ private projects. Simple stuff, no external dependencies.
 
 Stuff changes and breaks fast atm. Testing is limited.
 
-Documentation can be found at http://godoc.org/github.com/ByteSizedMarius/sqlp
-
 ## Changes made in this fork
 
 1. Use generics instead of `interface{}`: In my opinion, using generics improves readability and allows for additional functionality.
