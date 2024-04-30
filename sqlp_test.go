@@ -2,7 +2,7 @@
 // Modified 2023 by Marius Schmalz
 // Use of this source code is governed by the MIT
 // license which can be found in the LICENSE file.
-package sqlstruct
+package sqlp
 
 import (
 	"reflect"

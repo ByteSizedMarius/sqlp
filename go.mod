@@ -1,3 +1,3 @@
-module github.com/ByteSizedMarius/sqlstruct
+module github.com/ByteSizedMarius/sqlp
 
 go 1.21.0

@@ -4,7 +4,7 @@
 // license which can be found in the LICENSE file.
 
 /*
-Package sqlstruct provides some convenience functions for using structs with
+Package sqlp provides some convenience functions for using structs with
 the Go standard library's database/sql package.
 
 The package matches struct field names to SQL query column names. A field can
@@ -15,7 +15,7 @@ with "encoding/json" package.
 For example:
 ToDo (See Readme)
 */
-package sqlstruct
+package sqlp
 
 import (
 	"bytes"
@@ -32,9 +32,9 @@ var (
 	// into database column names.
 	//
 	// The default mapper converts field names to lower case. If instead you would prefer
-	// field names converted to snake case, simply assign sqlstruct.ToSnakeCase to the variable:
+	// field names converted to snake case, simply assign sqlp.ToSnakeCase to the variable:
 	//
-	//	sqlstruct.NameMapper = sqlstruct.ToSnakeCase
+	//	sqlp.NameMapper = sqlp.ToSnakeCase
 	//
 	// Alternatively for a custom mapping, any func(string) string can be used instead.
 	NameMapper = strings.ToLower
@@ -193,11 +193,11 @@ func Insert[T any](obj T, table string) (int64, error) {
 
 	res, err := db.Exec(query, values...)
 	if err != nil {
-		return 0, fmt.Errorf("sqlstruct: error inserting into %s: %w (query: %s)", table, err, query)
+		return 0, fmt.Errorf("sqlp: error inserting into %s: %w (query: %s)", table, err, query)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("sqlstruct: error getting last inserted id: %w", err)
+		return 0, fmt.Errorf("sqlp: error getting last inserted id: %w", err)
 	}
 
 	return id, nil
@@ -235,7 +235,7 @@ func ToSnakeCase(src string) string {
 
 func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
-		err = errors.New("sqlstruct: database not set")
+		err = errors.New("sqlp: database not set")
 		return
 	}
 
@@ -427,7 +427,7 @@ func prepareInsert[T any](src T) (string, []any) {
 func doInQuery(query string, args []any) (string, []any) {
 	// for now, we expect that there is only one of these.
 	if strings.Count(query, InQueryReplace) > 1 {
-		panic("sqlstruct: only one in query is supported")
+		panic("sqlp: only one in query is supported")
 	}
 
 	// if the IN is the only argument, we can just replace it
@@ -447,7 +447,7 @@ func doInQuery(query string, args []any) (string, []any) {
 
 	// get and replace the argument by flattening it
 	if len(args) <= argIndex {
-		panic("sqlstruct: not enough arguments for in query")
+		panic("sqlp: not enough arguments for in query")
 	}
 	argList := toAny(args[argIndex])
 	newArgs := replaceWithFlatten(args, argList, argIndex)
