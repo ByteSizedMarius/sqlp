@@ -13,71 +13,7 @@ name.  Unexported fields or fields marked with `sql:"-"` are ignored, just like
 with "encoding/json" package.
 
 For example:
-
-	type T struct {
-	    F1 string
-	    F2 string `sql:"field2"`
-	    F3 string `sql:"-"`
-	}
-
-	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM tablename", sqlstruct.Columns(T{})))
-	...
-
-	for rows.Next() {
-		var t T
-	    err = sqlstruct.Scan(&t, rows)
-	    ...
-	}
-
-	err = rows.Err() // get any errors encountered during iteration
-
-Aliased tables in a SQL statement may be scanned into a specific structure identified
-by the same alias, using the ColumnsAliased and ScanAliased functions:
-
-	type User struct {
-	    Id int `sql:"id"`
-	    Username string `sql:"username"`
-	    Email string `sql:"address"`
-	    Name string `sql:"name"`
-	    HomeAddress *Address `sql:"-"`
-	}
-
-	type Address struct {
-	    Id int `sql:"id"`
-	    City string `sql:"city"`
-	    Street string `sql:"address"`
-	}
-
-	...
-
-	var user User
-	var address Address
-	sql := `
-	SELECT %s, %s FROM users AS u
-	INNER JOIN address AS a ON a.id = u.address_id
-	WHERE u.username = ?
-	`
-	sql = fmt.Sprintf(sql, sqlstruct.ColumnsAliased(*user, "u"), sqlstruct.ColumnsAliased(*address, "a"))
-	rows, err := db.Query(sql, "gedi")
-	if err != nil {
-	    log.Fatal(err)
-	}
-	defer rows.Close()
-	if rows.Next() {
-	    err = sqlstruct.ScanAliased(&user, rows, "u")
-	    if err != nil {
-	        log.Fatal(err)
-	    }
-	    err = sqlstruct.ScanAliased(&address, rows, "a")
-	    if err != nil {
-	        log.Fatal(err)
-	    }
-	    user.HomeAddress = address
-	}
-	fmt.Printf("%+v", *user)
-	// output: "{Id:1 Username:gedi Email:gediminas.morkevicius@gmail.com Name:Gedas HomeAddress:0xc21001f570}"
-	fmt.Printf("%+v", *user.HomeAddress)
-	// output: "{Id:2 City:Vilnius Street:Plento 34}"
+ToDo (See Readme)
 */
 package sqlstruct
 
@@ -104,13 +40,15 @@ var (
 	// Alternatively for a custom mapping, any func(string) string can be used instead.
 	NameMapper = strings.ToLower
 
-	// A cache of fieldInfos to save reflecting every time. Inspried by encoding/xml
-	finfos    map[string]fieldInfo
-	finfoLock sync.RWMutex
+	// A cache of fieldInfos to save reflecting every time. Inspired by encoding/xml
+	fieldInfoCache     map[string]fieldInfo
+	fieldInfoCacheLock sync.RWMutex
 
 	// TagName is the name of the tag to use on struct fields
 	TagName = "sql"
 
+	// Global database handle to use for queries
+	// Used for Insert, QueryBasic,
 	db *sql.DB
 
 	QueryReplace   = "*"
@@ -135,7 +73,7 @@ type (
 )
 
 func init() {
-	finfos = make(map[string]fieldInfo)
+	fieldInfoCache = make(map[string]fieldInfo)
 }
 
 // SetDatabase sets the global database handle to be used by the Query function.
@@ -148,42 +86,13 @@ func SetDatabase(sqldb *sql.DB) {
 // mapped to any struct fields are ignored. Struct fields which have no matching column
 // in the result set are left unchanged.
 func Scan[T any](dest *T, rows Rows) error {
-	return doScan(dest, rows, "")
-}
-
-// ScanAliased works like scan, except that it expects the results in the query to be
-// prefixed by the given alias.
-//
-// For example, if scanning to a field named "name" with an alias of "user" it will
-// expect to find the result in a column named "user_name".
-//
-// See ColumnAliased for a convenient way to generate these queries.
-func ScanAliased[T any](dest *T, rows Rows, alias string) error {
-	return doScan[T](dest, rows, alias)
+	return doScan(dest, rows)
 }
 
 // Columns returns a string containing a sorted, comma-separated list of column names as
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
 func Columns[T any]() string {
 	return strings.Join(cols[T](), ", ")
-}
-
-// ColumnsAliased works like Columns except it prefixes the resulting column name with the
-// given alias.
-//
-// For each field in the given struct it will generate a statement like:
-//
-//	alias.field AS alias_field
-//
-// It is intended to be used in conjunction with the ScanAliased function.
-func ColumnsAliased[T any](alias string) string {
-	names := cols[T]()
-
-	aliased := make([]string, 0, len(names))
-	for _, n := range names {
-		aliased = append(aliased, alias+"."+n+" AS "+alias+"_"+n)
-	}
-	return strings.Join(aliased, ", ")
 }
 
 // Query executes the given query using the global database handle and returns the resulting objects in a slice.
@@ -407,9 +316,9 @@ func ToSnakeCase(src string) string {
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
 func getFieldInfo(typ reflect.Type) fieldInfo {
-	finfoLock.RLock()
-	finfo, ok := finfos[typ.String()+TagName]
-	finfoLock.RUnlock()
+	fieldInfoCacheLock.RLock()
+	finfo, ok := fieldInfoCache[typ.String()+TagName]
+	fieldInfoCacheLock.RUnlock()
 	if ok {
 		return finfo
 	}
@@ -447,14 +356,14 @@ func getFieldInfo(typ reflect.Type) fieldInfo {
 		finfo[tag] = []int{i}
 	}
 
-	finfoLock.Lock()
-	finfos[typ.String()+TagName] = finfo
-	finfoLock.Unlock()
+	fieldInfoCacheLock.Lock()
+	fieldInfoCache[typ.String()+TagName] = finfo
+	fieldInfoCacheLock.Unlock()
 
 	return finfo
 }
 
-func doScan[T any](dest *T, rows Rows, alias string) error {
+func doScan[T any](dest *T, rows Rows) error {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 
@@ -472,9 +381,6 @@ func doScan[T any](dest *T, rows Rows, alias string) error {
 	}
 
 	for _, name := range columns {
-		if len(alias) > 0 {
-			name = strings.Replace(name, alias+"_", "", 1)
-		}
 		idx, ok := fInfo[NameMapper(name)]
 		var v interface{}
 		if !ok {
