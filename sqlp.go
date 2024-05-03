@@ -133,7 +133,7 @@ func Columns[T any]() string {
 // and the following arguments
 //
 //	Query("SELECT * FROM users WHERE id IN (*) AND name LIKE '%?'", []int{1, 2, 3}, "a")
-func Query[T any](query string, args ...any) (slice []T, err error) {
+func Query[T any](query string, args ...any) (results []T, err error) {
 	rows, err := doQuery[T](query, args...)
 	if err != nil {
 		return
@@ -143,14 +143,14 @@ func Query[T any](query string, args ...any) (slice []T, err error) {
 		err = joinOrErr(err, rows.Close())
 	}()
 
-	slice, err = sliceFromRows[T](rows)
+	results, err = sliceFromRows[T](rows)
 	return
 }
 
 // QueryRow works similar to Query except it returns only the first row from the result set.
 // SetDatabase must be called before using this function.
 // Check the Query function for more information.
-func QueryRow[T any](query string, args ...any) (stru T, err error) {
+func QueryRow[T any](query string, args ...any) (result T, err error) {
 	rows, err := doQuery[T](query, args...)
 	if err != nil {
 		return
@@ -164,7 +164,7 @@ func QueryRow[T any](query string, args ...any) (stru T, err error) {
 		err = sql.ErrNoRows
 		return
 	}
-	err = Scan[T](&stru, rows)
+	err = Scan[T](&result, rows)
 	return
 }
 
@@ -175,14 +175,40 @@ func QueryBasic[T string | int | int64 | float32 | float64](query string, args .
 		return
 	}
 
-	var result []T
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
 	for rows.Next() {
 		var data T
 		err = rows.Scan(&data)
 		if err != nil {
-			return nil, err
+			return
 		}
-		result = append(result, data)
+		results = append(results, data)
+	}
+	return
+}
+
+// QueryBasicRow is QueryRow, but for basic data types.
+func QueryBasicRow[T string | int | int64 | float32 | float64](query string, args ...any) (result T, err error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	if !rows.Next() {
+		err = sql.ErrNoRows
+		return
+	}
+
+	err = rows.Scan(&result)
+	if err != nil {
+		return
 	}
 	return result, nil
 }
