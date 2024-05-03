@@ -47,6 +47,7 @@ var (
 	// TagName is the name of the tag to use on struct fields
 	TagName        = "sql"
 	AutoGenTagName = "sql-auto"
+	IgnoreTagName  = "sql-ign"
 
 	// Global database handle to use for queries
 	// Used for Insert, QueryBasic,
@@ -99,7 +100,7 @@ func Scan[T any](dest *T, rows Rows) error {
 // Columns returns a string containing a sorted, comma-separated list of column names as
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
 func Columns[T any]() string {
-	return strings.Join(cols[T](true), ", ")
+	return strings.Join(cols[T](true, false), ", ")
 }
 
 // Query executes the given query using the global database handle and returns the resulting objects in a slice.
@@ -338,9 +339,10 @@ func getPkFieldInfo(typ reflect.Type) (string, []int) {
 
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
-func getFieldInfo(typ reflect.Type, includePk bool) fieldInfo {
+func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool) fieldInfo {
+	key := fmt.Sprintf("%s%s%t%t", typ.String(), TagName, includePk, applyIgnore)
 	fieldInfoCacheLock.RLock()
-	finfo, ok := fieldInfoCache[typ.String()+TagName]
+	finfo, ok := fieldInfoCache[key]
 	fieldInfoCacheLock.RUnlock()
 	if ok {
 		return finfo
@@ -355,18 +357,18 @@ func getFieldInfo(typ reflect.Type, includePk bool) fieldInfo {
 
 		// check if the field has the primary key tag
 		_, isPk := f.Tag.Lookup(AutoGenTagName)
+		_, shouldIgnore := f.Tag.Lookup(IgnoreTagName)
 
 		// Skip unexported fields or fields marked with "-"
-		if f.PkgPath != "" || tag == "-" || (!includePk && isPk) {
+		if f.PkgPath != "" || tag == "-" || (!includePk && isPk) || (applyIgnore && shouldIgnore) {
 			continue
 		}
 
 		// Handle embedded structs
 		if f.Anonymous && f.Type.Kind() == reflect.Struct {
-			// Check what is struct not sql Null type like sql.NullString sql.NullBool sql.Null...
 			scannerType := reflect.TypeOf((*Scanner)(nil)).Elem()
 			if !reflect.PointerTo(f.Type).Implements(scannerType) {
-				for k, v := range getFieldInfo(f.Type, includePk) {
+				for k, v := range getFieldInfo(f.Type, includePk, applyIgnore) {
 					finfo[k] = append([]int{i}, v...)
 				}
 				continue
@@ -383,7 +385,7 @@ func getFieldInfo(typ reflect.Type, includePk bool) fieldInfo {
 
 	// Update cache
 	fieldInfoCacheLock.Lock()
-	fieldInfoCache[typ.String()+TagName] = finfo
+	fieldInfoCache[key] = finfo
 	fieldInfoCacheLock.Unlock()
 
 	return finfo
@@ -401,7 +403,7 @@ func doScan[T any](dest *T, rows Rows, alias string) error {
 	}
 
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
-	fInfo := getFieldInfo(typ.Elem(), true)
+	fInfo := getFieldInfo(typ.Elem(), true, false)
 
 	// Get the columns contained in the row
 	columns, err := rows.Columns()
@@ -437,10 +439,10 @@ func doScan[T any](dest *T, rows Rows, alias string) error {
 	return rows.Scan(ptrsToScanInto...)
 }
 
-func cols[T any](includePk bool) []string {
+func cols[T any](includePk bool, applyIgnore bool) []string {
 	// ToDo: use reflect.TypeFor here, starting with Go 1.22 (?)
 	var v = reflect.TypeOf((*T)(nil))
-	fields := getFieldInfo(v.Elem(), includePk)
+	fields := getFieldInfo(v.Elem(), includePk, applyIgnore)
 
 	names := make([]string, 0, len(fields))
 	for f := range fields {
@@ -477,7 +479,7 @@ func prepareUpdate[T any](src T) (string, []any, string) {
 func prepareColumns[T any](src T, includePk bool, pkLast bool) ([]string, []any, string) {
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
 	destv, typ := rft(src)
-	fInfo := getFieldInfo(typ, includePk)
+	fInfo := getFieldInfo(typ, includePk, true)
 
 	colNames := make([]string, 0, len(fInfo))
 	values := make([]any, 0, len(fInfo))
