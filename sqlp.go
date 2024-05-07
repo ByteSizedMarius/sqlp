@@ -93,12 +93,14 @@ func SetDatabase(sqldb *sql.DB) {
 // should have exported fields tagged with the "sql" tag. Columns from row which are not
 // mapped to any struct fields are ignored. Struct fields which have no matching column
 // in the result set are left unchanged.
+// Deprecated: Use Query-functions.
 func Scan[T any](dest *T, rows Rows) error {
-	return doScan(dest, rows, "")
+	return doScan(dest, rows)
 }
 
 // Columns returns a string containing a sorted, comma-separated list of column names as
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
+// Deprecated: Use Query-functions.
 func Columns[T any]() string {
 	return strings.Join(cols[T](true, false), ", ")
 }
@@ -305,7 +307,7 @@ func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 
 	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
 	if strings.Contains(query, InQueryReplace) {
-		doInQuery(query, args)
+		query, args = doInQuery(query, args)
 	}
 
 	rows, err = db.Query(query, args...)
@@ -420,7 +422,7 @@ func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool) fieldInfo 
 // doScan scans the next row from rows in to a struct pointed to by dest.
 // The mapping of columns to struct fields is done by matching the column name to the
 // struct field name or given tag.
-func doScan[T any](dest *T, rows Rows, alias string) error {
+func doScan[T any](dest *T, rows Rows) error {
 	// reflect the value and check if dest is of the correct type
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
@@ -441,11 +443,6 @@ func doScan[T any](dest *T, rows Rows, alias string) error {
 	var ptrsToScanInto []any
 	elem := destv.Elem()
 	for _, cName := range columns {
-
-		// handle aliasing
-		if len(alias) > 0 {
-			cName = strings.Replace(cName, alias+"_", "", 1)
-		}
 
 		// Get the field index for the column
 		idx, isMapped := fInfo[NameMapper(cName)]
