@@ -270,6 +270,16 @@ func Delete[T any](pk any, table string) error {
 	return nil
 }
 
+func In(query string, args ...any) error {
+	if !strings.Contains(query, InQueryReplace) {
+		panic("sqlstruct: in query not found")
+	}
+
+	query, args = doInQuery(query, args)
+	_, err := db.Exec(query, args...)
+	return err
+}
+
 // ——————————————————————————————————————————————————————————————————————————————
 // NameMapper
 // ——————————————————————————————————————————————————————————————————————————————
