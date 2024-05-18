@@ -241,7 +241,6 @@ func Update[T any](obj T, table string) error {
 	if db == nil {
 		panic(ErrNotSet)
 	}
-
 	columnString, values, pkCol := prepareUpdate[T](obj)
 	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s=?", table, columnString, pkCol)
 
@@ -557,7 +556,8 @@ func doInQuery(query string, args []any) (string, []any) {
 
 	// if the IN is the only argument, we can just replace it
 	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
-		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(args))+")", 1)
+		args = toAny(args[0])
+		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(toAny(args)))+")", 1)
 		return newQuery, args
 	}
 
