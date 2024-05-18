@@ -188,7 +188,7 @@ func TestDoInQuerySimple(t *testing.T) {
 	expectedQuery := "DELETE FROM table WHERE id IN (?, ?, ?)"
 	expectedArgs := []any{1, 2, 3}
 
-	actualQuery, actualArgs := doInQuery(query, values)
+	actualQuery, actualArgs := InQuery(query, values)
 
 	if actualQuery != expectedQuery {
 		t.Errorf("expected %q got %q", expectedQuery, actualQuery)
@@ -205,7 +205,7 @@ func TestDoInQuery(t *testing.T) {
 	expectedQuery := "DELETE FROM table WHERE id=? AND name IN (?, ?, ?)"
 	expectedArgs := []any{0, 1, 2, 3}
 
-	actualQuery, actualArgs := doInQuery(query, values)
+	actualQuery, actualArgs := InQuery(query, values)
 
 	if actualQuery != expectedQuery {
 		t.Errorf("expected %q got %q", expectedQuery, actualQuery)

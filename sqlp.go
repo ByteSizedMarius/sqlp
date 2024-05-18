@@ -274,9 +274,43 @@ func In(query string, args ...any) error {
 		panic("sqlstruct: in query not found")
 	}
 
-	query, args = doInQuery(query, args)
+	query, args = InQuery(query, args)
 	_, err := db.Exec(query, args...)
 	return err
+}
+
+func InQuery(query string, args []any) (string, []any) {
+	// for now, we expect that there is only one of these.
+	if strings.Count(query, InQueryReplace) > 1 {
+		panic("sqlp: only one in query is supported")
+	}
+
+	// if the IN is the only argument, we can just replace it
+	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
+		args = toAny(args[0])
+		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(toAny(args)))+")", 1)
+		return newQuery, args
+	}
+
+	// otherwise, get the index of the list in the argument list
+	// flatten it and put it at the correct index
+
+	// get the index of the inQueryReplace
+	index := strings.Index(query, InQueryReplace) + 1
+
+	// get the index of the argument in the argument list of the list for the IN
+	argIndex := strings.Count(query[:index], "?")
+
+	// get and replace the argument by flattening it
+	if len(args) <= argIndex {
+		panic("sqlp: not enough arguments for in query")
+	}
+	argList := toAny(args[argIndex])
+	newArgs := replaceWithFlatten(args, argList, argIndex)
+
+	// edit the query
+	newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(argList))+")", 1)
+	return newQuery, newArgs
 }
 
 // ——————————————————————————————————————————————————————————————————————————————
@@ -316,7 +350,7 @@ func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 
 	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
 	if strings.Contains(query, InQueryReplace) {
-		query, args = doInQuery(query, args)
+		query, args = InQuery(query, args)
 	}
 
 	rows, err = db.Query(query, args...)
@@ -547,40 +581,6 @@ func rft[T any](src T) (reflect.Value, reflect.Type) {
 // ——————————————————————————————————————————————————————————————————————————————
 // In Query Helper
 // ——————————————————————————————————————————————————————————————————————————————
-
-func doInQuery(query string, args []any) (string, []any) {
-	// for now, we expect that there is only one of these.
-	if strings.Count(query, InQueryReplace) > 1 {
-		panic("sqlp: only one in query is supported")
-	}
-
-	// if the IN is the only argument, we can just replace it
-	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
-		args = toAny(args[0])
-		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(toAny(args)))+")", 1)
-		return newQuery, args
-	}
-
-	// otherwise, get the index of the list in the argument list
-	// flatten it and put it at the correct index
-
-	// get the index of the inQueryReplace
-	index := strings.Index(query, InQueryReplace) + 1
-
-	// get the index of the argument in the argument list of the list for the IN
-	argIndex := strings.Count(query[:index], "?")
-
-	// get and replace the argument by flattening it
-	if len(args) <= argIndex {
-		panic("sqlp: not enough arguments for in query")
-	}
-	argList := toAny(args[argIndex])
-	newArgs := replaceWithFlatten(args, argList, argIndex)
-
-	// edit the query
-	newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(argList))+")", 1)
-	return newQuery, newArgs
-}
 
 func replaceWithFlatten(first []any, second []any, index int) []any {
 	result := make([]any, 0, len(first)+len(second)-1)
