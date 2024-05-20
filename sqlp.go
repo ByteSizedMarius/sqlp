@@ -287,8 +287,12 @@ func InQuery(query string, args []any) (string, []any) {
 
 	// if the IN is the only argument, we can just replace it
 	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
-		args = toAny(args[0])
-		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(toAny(args)))+")", 1)
+		if len(args) == 1 {
+			args = ToAny(args[0])
+		} else {
+			args = ToAny(args)
+		}
+		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(args))+")", 1)
 		return newQuery, args
 	}
 
@@ -305,7 +309,7 @@ func InQuery(query string, args []any) (string, []any) {
 	if len(args) <= argIndex {
 		panic("sqlp: not enough arguments for in query")
 	}
-	argList := toAny(args[argIndex])
+	argList := ToAny(args[argIndex])
 	newArgs := replaceWithFlatten(args, argList, argIndex)
 
 	// edit the query
@@ -590,7 +594,7 @@ func replaceWithFlatten(first []any, second []any, index int) []any {
 	return result
 }
 
-func toAny(s any) []any {
+func ToAny(s any) []any {
 	v := reflect.ValueOf(s)
 	r := make([]any, v.Len())
 	for i := 0; i < v.Len(); i++ {
