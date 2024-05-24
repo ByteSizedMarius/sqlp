@@ -53,8 +53,8 @@ var (
 	// Used for Insert, QueryBasic,
 	db *sql.DB
 
-	QueryReplace   = "*"
-	InQueryReplace = "(*)"
+	QueryReplace   = "SELECT *"
+	InQueryReplace = "IN (*)"
 
 	ErrNotSet = errors.New("sqlp: database not set")
 )
@@ -286,13 +286,13 @@ func InQuery(query string, args []any) (string, []any) {
 	}
 
 	// if the IN is the only argument, we can just replace it
-	if strings.Count(query, "?")+strings.Count(query, "(*)") == 1 {
+	if strings.Count(query, "?")+strings.Count(query, InQueryReplace) == 1 {
 		if len(args) == 1 {
 			args = ToAny(args[0])
 		} else {
 			args = ToAny(args)
 		}
-		newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(args))+")", 1)
+		newQuery := strings.Replace(query, InQueryReplace, "IN ("+inQuery(len(args))+")", 1)
 		return newQuery, args
 	}
 
@@ -352,7 +352,7 @@ func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 		panic(ErrNotSet)
 	}
 
-	query = strings.Replace(query, QueryReplace, Columns[T](), 1)
+	query = strings.Replace(query, QueryReplace, "SELECT "+Columns[T](), 1)
 	if strings.Contains(query, InQueryReplace) {
 		query, args = InQuery(query, args)
 	}
