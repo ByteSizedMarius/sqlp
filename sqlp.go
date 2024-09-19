@@ -172,6 +172,13 @@ func QueryRow[T any](query string, args ...any) (result T, err error) {
 
 // QueryBasic is Query, but for basic data types.
 func QueryBasic[T string | int | int64 | float32 | float64](query string, args ...any) (results []T, err error) {
+	if strings.Contains(query, InQueryReplace) {
+		if len(args) == 0 {
+			return
+		}
+		query, args = InQuery(query, args)
+	}
+
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
@@ -194,6 +201,13 @@ func QueryBasic[T string | int | int64 | float32 | float64](query string, args .
 
 // QueryBasicRow is QueryRow, but for basic data types.
 func QueryBasicRow[T string | int | int64 | float32 | float64](query string, args ...any) (result T, err error) {
+	if strings.Contains(query, InQueryReplace) {
+		if len(args) == 0 {
+			return
+		}
+		query, args = InQuery(query, args)
+	}
+
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
@@ -221,7 +235,20 @@ func Insert[T any](obj T, table string) (int64, error) {
 	if db == nil {
 		panic(ErrNotSet)
 	}
-	return insertHelper[T](obj, table, db.Exec)
+
+	columnString, values := prepareInsert[T](obj)
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columnString, inQuery(len(values)))
+
+	res, err := db.Exec(query, values...)
+	if err != nil {
+		return 0, fmt.Errorf("sqlp: error inserting into %s: %w (query: %s)", table, err, query)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("sqlp: error getting last inserted id: %w", err)
+	}
+
+	return id, nil
 }
 
 func Update[T any](obj T, table string) error {
@@ -242,7 +269,18 @@ func Delete[T any](pk any, table string) error {
 	if db == nil {
 		panic(ErrNotSet)
 	}
-	return deleteHelper[T](pk, table, db.Exec)
+	v := reflect.TypeOf((*T)(nil)).Elem()
+	if v.Kind() != reflect.Struct {
+		panic(fmt.Errorf("dest must a struct; got %T", v))
+	}
+	pkCol, _ := getPkFieldInfo(v)
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s=?", table, pkCol)
+	_, err := db.Exec(query, pk)
+	if err != nil {
+		return fmt.Errorf("sqlp: error deleting from %s: %w (query: %s)", table, err, query)
+	}
+	return nil
 }
 
 func In(query string, args ...any) error {
@@ -262,13 +300,19 @@ func InQuery(query string, args []any) (string, []any) {
 	}
 
 	// if the IN is the only argument, we can just replace it
-	if strings.Count(query, "?")+strings.Count(query, InQueryReplace) == 1 {
+	if (strings.Count(query, "?") + strings.Count(query, InQueryReplace)) == 1 {
 		//if len(args) == 1 {
+		//	fmt.Println(2)
+		//	fmt.Println(args)
+		//	fmt.Println(args[0])
+		//
 		//	args = ToAny(args[0])
 		//} else {
 		args = ToAny(args)
 		//}
+
 		newQuery := strings.Replace(query, InQueryReplace, "IN ("+inQuery(len(args))+")", 1)
+
 		return newQuery, args
 	}
 
@@ -323,40 +367,6 @@ func ToSnakeCase(src string) string {
 // General Helper
 // ——————————————————————————————————————————————————————————————————————————————
 
-type execFunc func(query string, args ...any) (sql.Result, error)
-
-func insertHelper[T any](obj T, table string, exec execFunc) (int64, error) {
-	columnString, values := prepareInsert[T](obj)
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columnString, inQuery(len(values)))
-
-	res, err := exec(query, values...)
-	if err != nil {
-		return 0, fmt.Errorf("sqlp: error inserting into %s: %w (query: %s)", table, err, query)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("sqlp: error getting last inserted id: %w", err)
-	}
-
-	return id, nil
-}
-
-func deleteHelper[T any](pk any, table string, exec execFunc) error {
-	v := reflect.TypeOf((*T)(nil)).Elem()
-	if v.Kind() != reflect.Struct {
-		panic(fmt.Errorf("dest must a struct; got %T", v))
-	}
-	pkCol, _ := getPkFieldInfo(v)
-
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s=?", table, pkCol)
-
-	_, err := exec(query, pk)
-	if err != nil {
-		return fmt.Errorf("sqlp: error deleting from %s: %w (query: %s)", table, err, query)
-	}
-	return nil
-}
-
 func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
 		panic(ErrNotSet)
@@ -364,6 +374,9 @@ func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
 
 	query = strings.Replace(query, QueryReplace, "SELECT "+Columns[T](), 1)
 	if strings.Contains(query, InQueryReplace) {
+		if len(args) == 0 {
+			return
+		}
 		query, args = InQuery(query, args)
 	}
 
