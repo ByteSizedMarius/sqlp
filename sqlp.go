@@ -178,7 +178,7 @@ func QueryBasic[T string | int | int64 | float32 | float64](query string, args .
 		}
 		query, args = InQuery(query, args)
 	}
-
+	
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
@@ -207,7 +207,7 @@ func QueryBasicRow[T string | int | int64 | float32 | float64](query string, arg
 		}
 		query, args = InQuery(query, args)
 	}
-
+	
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
@@ -302,17 +302,11 @@ func InQuery(query string, args []any) (string, []any) {
 	// if the IN is the only argument, we can just replace it
 	if (strings.Count(query, "?") + strings.Count(query, InQueryReplace)) == 1 {
 		//if len(args) == 1 {
-		//	fmt.Println(2)
-		//	fmt.Println(args)
-		//	fmt.Println(args[0])
-		//
 		//	args = ToAny(args[0])
 		//} else {
-		args = ToAny(args)
+		//	args = ToAny(args)
 		//}
-
 		newQuery := strings.Replace(query, InQueryReplace, "IN ("+inQuery(len(args))+")", 1)
-
 		return newQuery, args
 	}
 
