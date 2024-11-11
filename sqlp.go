@@ -358,6 +358,37 @@ func ToSnakeCase(src string) string {
 }
 
 // ——————————————————————————————————————————————————————————————————————————————
+// Table Helper
+// ——————————————————————————————————————————————————————————————————————————————
+
+type Repo interface {
+	TableName() string
+}
+
+func InsertR[T Repo](obj T) (int, error) {
+	return Insert(obj, obj.TableName())
+}
+
+func UpdateR[T Repo](obj T) error {
+	return Update(obj, obj.TableName())
+}
+
+func DeleteR[T Repo](obj T) error {
+	// get the pk from the object based on the tag
+	v := reflect.ValueOf(obj)
+	if v.Kind() != reflect.Ptr {
+		panic("sqlp: expected pointer to struct")
+	}
+
+	// get the name first
+	pkCol, _ := getPkFieldInfo(v.Elem().Type())
+
+	// get the value
+	pk := v.Elem().FieldByName(pkCol).Interface()
+	return Delete[T](pk, obj.TableName())
+}
+
+// ——————————————————————————————————————————————————————————————————————————————
 // General Helper
 // ——————————————————————————————————————————————————————————————————————————————
 
