@@ -376,15 +376,15 @@ func UpdateR[T Repo](obj T) error {
 func DeleteR[T Repo](obj T) error {
 	// get the pk from the object based on the tag
 	v := reflect.ValueOf(obj)
-	if v.Kind() != reflect.Ptr {
+	if v.Kind() != reflect.Struct {
 		panic("sqlp: expected pointer to struct")
 	}
 
 	// get the name first
-	pkCol, _ := getPkFieldInfo(v.Elem().Type())
+	pkCol, _ := getPkFieldInfo(v.Type())
 
 	// get the value
-	pk := v.Elem().FieldByName(pkCol).Interface()
+	pk := v.FieldByName(pkCol).Interface()
 	return Delete[T](pk, obj.TableName())
 }
 
