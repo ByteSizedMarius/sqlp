@@ -407,14 +407,26 @@ type Repo interface {
 }
 
 func InsertR[T Repo](obj T) (int, error) {
-	return Insert(obj, obj.TableName())
+	return InsertRdb[T](db, obj)
 }
 
 func UpdateR[T Repo](obj T) error {
-	return Update(obj, obj.TableName())
+	return UpdateRdb[T](db, obj)
 }
 
 func DeleteR[T Repo](obj T) error {
+	return DeleteRdb[T](db, obj)
+}
+
+func InsertRdb[T Repo](db *sql.DB, obj T) (int, error) {
+	return Insert(obj, obj.TableName())
+}
+
+func UpdateRdb[T Repo](db *sql.DB, obj T) error {
+	return Update(obj, obj.TableName())
+}
+
+func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 	// get the pk from the object based on the tag
 	v := reflect.ValueOf(obj)
 	if v.Kind() != reflect.Struct {
