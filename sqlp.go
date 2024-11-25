@@ -105,140 +105,6 @@ func Columns[T any]() string {
 	return strings.Join(cols[T](true, false), ", ")
 }
 
-// Query executes the given query using the global database handle and returns the resulting objects in a slice.
-// SetDatabase must be called before using this function.
-// The query should use the QueryReplace (* by default) string to indicate where the columns from the struct type T should be inserted.
-//
-// For example for the following struct:
-//
-//	type User struct {
-//		ID   int
-//		Name string
-//	}
-//
-// and the following query
-//
-//	SELECT * FROM users WHERE id = ?
-//
-// the query sent to the database will be
-//
-//	SELECT id, name FROM users WHERE id = ?
-//
-// and a list of User objects will be returned.
-//
-// In addition, "IN"-queries are supported. If the query contains the InQueryReplace string,
-// the function will automatically replace it with the correct amount of "?".
-// For example, if you give the following query
-//
-//	SELECT * FROM users WHERE id IN (*)
-//
-// and the following arguments
-//
-//	Query("SELECT * FROM users WHERE id IN (*) AND name LIKE '%?'", []int{1, 2, 3}, "a")
-func Query[T any](query string, args ...any) (results []T, err error) {
-	rows, err := doQuery[T](query, args...)
-	if err != nil {
-		return
-	}
-
-	defer func() {
-		err = joinOrErr(err, rows.Close())
-	}()
-
-	results, err = sliceFromRows[T](rows)
-	return
-}
-
-// QueryRow works similar to Query except it returns only the first row from the result set.
-// SetDatabase must be called before using this function.
-// Check the Query function for more information.
-func QueryRow[T any](query string, args ...any) (result T, err error) {
-	rows, err := doQuery[T](query, args...)
-	if err != nil {
-		return
-	}
-
-	defer func() {
-		err = joinOrErr(err, rows.Close())
-	}()
-
-	if !rows.Next() {
-		err = sql.ErrNoRows
-		return
-	}
-	err = Scan[T](&result, rows)
-	return
-}
-
-// QueryBasic is Query, but for basic data types.
-func QueryBasic[T string | int | int64 | float32 | float64](query string, args ...any) (results []T, err error) {
-	if strings.Contains(query, InQueryReplace) {
-		if len(args) == 0 {
-			return
-		}
-		query, args = InQuery(query, args)
-	}
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-
-	defer func() {
-		err = joinOrErr(err, rows.Close())
-	}()
-
-	for rows.Next() {
-		var data T
-		err = rows.Scan(&data)
-		if err != nil {
-			return
-		}
-		results = append(results, data)
-	}
-	return
-}
-
-// QueryBasicRow is QueryRow, but for basic data types.
-func QueryBasicRow[T string | int | int64 | float32 | float64](query string, args ...any) (result T, err error) {
-	if strings.Contains(query, InQueryReplace) {
-		if len(args) == 0 {
-			return
-		}
-		query, args = InQuery(query, args)
-	}
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-
-	defer func() {
-		err = joinOrErr(err, rows.Close())
-	}()
-
-	if !rows.Next() {
-		err = sql.ErrNoRows
-		return
-	}
-
-	err = rows.Scan(&result)
-	if err != nil {
-		return
-	}
-	return result, nil
-}
-
-func In(query string, args ...any) error {
-	if !strings.Contains(query, InQueryReplace) {
-		panic("sqlstruct: in query not found")
-	}
-
-	query, args = InQuery(query, args)
-	_, err := db.Exec(query, args...)
-	return err
-}
-
 func InQuery(query string, args []any) (string, []any) {
 	// for now, we expect that there is only one of these.
 	if strings.Count(query, InQueryReplace) > 1 {
@@ -280,6 +146,140 @@ func InQuery(query string, args []any) (string, []any) {
 // ——————————————————————————————————————————————————————————————————————————————
 // Custom DB ORMs
 // ——————————————————————————————————————————————————————————————————————————————
+
+// QueryDb executes the given query using the global database handle and returns the resulting objects in a slice.
+// SetDatabase must be called before using this function.
+// The query should use the QueryReplace (* by default) string to indicate where the columns from the struct type T should be inserted.
+//
+// For example for the following struct:
+//
+//	type User struct {
+//		ID   int
+//		Name string
+//	}
+//
+// and the following query
+//
+//	SELECT * FROM users WHERE id = ?
+//
+// the query sent to the database will be
+//
+//	SELECT id, name FROM users WHERE id = ?
+//
+// and a list of User objects will be returned.
+//
+// In addition, "IN"-queries are supported. If the query contains the InQueryReplace string,
+// the function will automatically replace it with the correct amount of "?".
+// For example, if you give the following query
+//
+//	SELECT * FROM users WHERE id IN (*)
+//
+// and the following arguments
+//
+//	Query("SELECT * FROM users WHERE id IN (*) AND name LIKE '%?'", []int{1, 2, 3}, "a")
+func QueryDb[T any](db *sql.DB, query string, args ...any) (results []T, err error) {
+	rows, err := doQuery[T](query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	results, err = sliceFromRows[T](rows)
+	return
+}
+
+// QueryRowDb works similar to Query except it returns only the first row from the result set.
+// SetDatabase must be called before using this function.
+// Check the Query function for more information.
+func QueryRowDb[T any](db *sql.DB, query string, args ...any) (result T, err error) {
+	rows, err := doQuery[T](query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	if !rows.Next() {
+		err = sql.ErrNoRows
+		return
+	}
+	err = Scan[T](&result, rows)
+	return
+}
+
+// QueryBasicDb is Query, but for basic data types.
+func QueryBasicDb[T string | int | int64 | float32 | float64](db *sql.DB, query string, args ...any) (results []T, err error) {
+	if strings.Contains(query, InQueryReplace) {
+		if len(args) == 0 {
+			return
+		}
+		query, args = InQuery(query, args)
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	for rows.Next() {
+		var data T
+		err = rows.Scan(&data)
+		if err != nil {
+			return
+		}
+		results = append(results, data)
+	}
+	return
+}
+
+// QueryBasicRowDb is QueryRow, but for basic data types.
+func QueryBasicRowDb[T string | int | int64 | float32 | float64](db *sql.DB, query string, args ...any) (result T, err error) {
+	if strings.Contains(query, InQueryReplace) {
+		if len(args) == 0 {
+			return
+		}
+		query, args = InQuery(query, args)
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		err = joinOrErr(err, rows.Close())
+	}()
+
+	if !rows.Next() {
+		err = sql.ErrNoRows
+		return
+	}
+
+	err = rows.Scan(&result)
+	if err != nil {
+		return
+	}
+	return result, nil
+}
+
+func InDb(db *sql.DB, query string, args ...any) error {
+	if !strings.Contains(query, InQueryReplace) {
+		panic("sqlstruct: in query not found")
+	}
+
+	query, args = InQuery(query, args)
+	_, err := db.Exec(query, args...)
+	return err
+}
 
 func InsertDb[T any](db *sql.DB, obj T, table string) (int, error) {
 	if db == nil {
@@ -336,6 +336,27 @@ func DeleteDb[T any](db *sql.DB, pk any, table string) error {
 // ——————————————————————————————————————————————————————————————————————————————
 // Basic ORMs
 // ——————————————————————————————————————————————————————————————————————————————
+
+func Query[T any](query string, args ...any) (results []T, err error) {
+	return QueryDb[T](db, query, args...)
+}
+
+func QueryRow[T any](query string, args ...any) (result T, err error) {
+	return QueryRowDb[T](db, query, args...)
+}
+
+func QueryBasic[T string | int | int64 | float32 | float64](query string, args ...any) (results []T, err error) {
+	return QueryBasicDb[T](db, query, args...)
+}
+
+func QueryBasicRow[T string | int | int64 | float32 | float64](query string, args ...any) (result T, err error) {
+	return QueryBasicRowDb[T](db, query, args...)
+
+}
+
+func In(query string, args ...any) error {
+	return InDb(db, query, args...)
+}
 
 // Insert inserts the given object into the table and returns the last inserted id.
 // Autogenerated fields can be tagged with `sql-auto:""` (AutoGenTagName) in order for them to be ignored during insert.
