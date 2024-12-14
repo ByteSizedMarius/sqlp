@@ -446,6 +446,10 @@ func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 // ——————————————————————————————————————————————————————————————————————————————
 
 func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
+	return doQueryDb[T](db, query, args...)
+}
+
+func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
 		panic(ErrNotSet)
 	}
