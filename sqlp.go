@@ -178,7 +178,7 @@ func InQuery(query string, args []any) (string, []any) {
 //
 //	Query("SELECT * FROM users WHERE id IN (*) AND name LIKE '%?'", []int{1, 2, 3}, "a")
 func QueryDb[T any](db *sql.DB, query string, args ...any) (results []T, err error) {
-	rows, err := doQuery[T](query, args...)
+	rows, err := doQueryDb[T](db, query, args...)
 	if err != nil {
 		return
 	}
