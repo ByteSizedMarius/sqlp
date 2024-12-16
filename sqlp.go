@@ -195,7 +195,7 @@ func QueryDb[T any](db *sql.DB, query string, args ...any) (results []T, err err
 // SetDatabase must be called before using this function.
 // Check the Query function for more information.
 func QueryRowDb[T any](db *sql.DB, query string, args ...any) (result T, err error) {
-	rows, err := doQuery[T](query, args...)
+	rows, err := doQueryDb[T](db, query, args...)
 	if err != nil {
 		return
 	}
@@ -419,11 +419,11 @@ func DeleteR[T Repo](obj T) error {
 }
 
 func InsertRdb[T Repo](db *sql.DB, obj T) (int, error) {
-	return Insert(obj, obj.TableName())
+	return InsertDb(db, obj, obj.TableName())
 }
 
 func UpdateRdb[T Repo](db *sql.DB, obj T) error {
-	return Update(obj, obj.TableName())
+	return UpdateDb(db, obj, obj.TableName())
 }
 
 func DeleteRdb[T Repo](db *sql.DB, obj T) error {
@@ -438,16 +438,12 @@ func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 
 	// get the value
 	pk := v.FieldByName(pkCol).Interface()
-	return Delete[T](pk, obj.TableName())
+	return DeleteDb[T](db, pk, obj.TableName())
 }
 
 // ——————————————————————————————————————————————————————————————————————————————
 // General Helper
 // ——————————————————————————————————————————————————————————————————————————————
-
-func doQuery[T any](query string, args ...any) (rows *sql.Rows, err error) {
-	return doQueryDb[T](db, query, args...)
-}
 
 func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
