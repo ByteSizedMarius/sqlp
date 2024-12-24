@@ -342,6 +342,47 @@ func DeleteDb[T any](db *sql.DB, pk any, table string) error {
 // Basic ORMs
 // ——————————————————————————————————————————————————————————————————————————————
 
+func GetR[T Repo]() ([]T, error) {
+	query := "SELECT * FROM " + table[T]()
+	return QueryDb[T](db, query)
+}
+
+func GetSingleWhereR[T Repo](where string, args ...any) (res T, err error) {
+	query, err := whereBuilder("SELECT * FROM "+table[T](), where)
+	if err != nil {
+		return
+	}
+
+	return QueryRowDb[T](db, query, args...)
+}
+
+func GetWhereR[T Repo](where string, args ...any) ([]T, error) {
+	query, err := whereBuilder("SELECT * FROM "+table[T](), where)
+	if err != nil {
+		return nil, err
+	}
+
+	return QueryDb[T](db, query, args...)
+}
+
+func table[T Repo]() string {
+	var instance T
+	instanceType := reflect.TypeOf(instance)
+	instanceValue := reflect.New(instanceType).Elem().Interface().(T)
+	return instanceValue.TableName()
+}
+
+func whereBuilder(query string, where string) (string, error) {
+	if where == "" {
+		return query, nil
+	}
+	if !strings.HasPrefix(where, "WHERE") && !strings.HasPrefix(where, "ORDER") {
+		return "", fmt.Errorf("where clause must start with WHERE/ORDER " + query)
+	}
+
+	return query + " " + where, nil
+}
+
 func Query[T any](query string, args ...any) (results []T, err error) {
 	return QueryDb[T](db, query, args...)
 }
