@@ -1,5 +1,5 @@
 // Copyright 2012 Kamil Kisiel. All rights reserved.
-// Modified 2023 by Marius Schmalz
+// Modified >2023 by Marius Schmalz
 // Use of this source code is governed by the MIT
 // license which can be found in the LICENSE file.
 
@@ -105,10 +105,10 @@ func Columns[T any]() string {
 	return strings.Join(cols[T](true, false), ", ")
 }
 
-func InQuery(query string, args []any) (string, []any) {
+func InQuery(query string, args []any) (string, []any, error) {
 	// for now, we expect that there is only one of these.
 	if strings.Count(query, InQueryReplace) > 1 {
-		panic("sqlp: only one in query is supported")
+		return "", nil, fmt.Errorf("sqlp: only one in query is supported")
 	}
 
 	// if the IN is the only argument, we can just replace it
@@ -119,7 +119,7 @@ func InQuery(query string, args []any) (string, []any) {
 		//	args = ToAny(args)
 		//}
 		newQuery := strings.Replace(query, InQueryReplace, "IN ("+inQuery(len(args))+")", 1)
-		return newQuery, args
+		return newQuery, args, nil
 	}
 
 	// otherwise, get the index of the list in the argument list
@@ -133,14 +133,14 @@ func InQuery(query string, args []any) (string, []any) {
 
 	// get and replace the argument by flattening it
 	if len(args) <= argIndex {
-		panic("sqlp: not enough arguments for in query")
+		return "", nil, fmt.Errorf("sqlp: not enough arguments for in query")
 	}
 	argList := ToAny(args[argIndex])
 	newArgs := replaceWithFlatten(args, argList, argIndex)
 
 	// edit the query
 	newQuery := strings.Replace(query, InQueryReplace, "("+inQuery(len(argList))+")", 1)
-	return newQuery, newArgs
+	return newQuery, newArgs, nil
 }
 
 // ——————————————————————————————————————————————————————————————————————————————
@@ -218,7 +218,10 @@ func QueryBasicDb[T string | int | int64 | float32 | float64](db *sql.DB, query 
 		if len(args) == 0 {
 			return
 		}
-		query, args = InQuery(query, args)
+		query, args, err = InQuery(query, args)
+		if err != nil {
+			return
+		}
 	}
 
 	rows, err := db.Query(query, args...)
@@ -247,7 +250,10 @@ func QueryBasicRowDb[T string | int | int64 | float32 | float64](db *sql.DB, que
 		if len(args) == 0 {
 			return
 		}
-		query, args = InQuery(query, args)
+		query, args, err = InQuery(query, args)
+		if err != nil {
+			return
+		}
 	}
 
 	rows, err := db.Query(query, args...)
@@ -271,22 +277,29 @@ func QueryBasicRowDb[T string | int | int64 | float32 | float64](db *sql.DB, que
 	return result, nil
 }
 
-func InDb(db *sql.DB, query string, args ...any) error {
+func InDb(db *sql.DB, query string, args ...any) (err error) {
 	if !strings.Contains(query, InQueryReplace) {
 		panic("sqlstruct: in query not found")
 	}
 
-	query, args = InQuery(query, args)
-	_, err := db.Exec(query, args...)
+	query, args, err = InQuery(query, args)
+	if err != nil {
+		return
+	}
+
+	_, err = db.Exec(query, args...)
 	return err
 }
 
 func InsertDb[T any](db *sql.DB, obj T, table string) (int, error) {
 	if db == nil {
-		panic(ErrNotSet)
+		return 0, ErrNotSet
 	}
 
-	columnString, values := prepareInsert[T](obj)
+	columnString, values, err := prepareInsert[T](obj)
+	if err != nil {
+		return 0, err
+	}
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columnString, inQuery(len(values)))
 
 	res, err := db.Exec(query, values...)
@@ -305,10 +318,14 @@ func UpdateDb[T any](db *sql.DB, obj T, table string) error {
 	if db == nil {
 		panic(ErrNotSet)
 	}
-	columnString, values, pkCol := prepareUpdate[T](obj)
+	columnString, values, pkCol, err := prepareUpdate[T](obj)
+	if err != nil {
+		return err
+	}
+
 	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s=?", table, columnString, pkCol)
 
-	_, err := db.Exec(query, values...)
+	_, err = db.Exec(query, values...)
 	if err != nil {
 		return fmt.Errorf("sqlp: error updating %s: %w (query: %s)", table, err, query)
 	}
@@ -317,16 +334,20 @@ func UpdateDb[T any](db *sql.DB, obj T, table string) error {
 
 func DeleteDb[T any](db *sql.DB, pk any, table string) error {
 	if db == nil {
-		panic(ErrNotSet)
+		return ErrNotSet
 	}
 	v := reflect.TypeOf((*T)(nil)).Elem()
 	if v.Kind() != reflect.Struct {
-		panic(fmt.Errorf("dest must a struct; got %T", v))
+		return fmt.Errorf("dest must a struct; got %T", v)
 	}
-	pkCol, _ := getPkFieldInfo(v)
+	pkCol, _, err := getPkFieldInfo(v)
+	if err != nil {
+		err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for deletion"))
+		return err
+	}
 
 	query := fmt.Sprintf("DELETE FROM %s WHERE %s=?", table, pkCol)
-	_, err := db.Exec(query, pk)
+	_, err = db.Exec(query, pk)
 	if err != nil {
 		return fmt.Errorf("sqlp: error deleting from %s: %w (query: %s)", table, err, query)
 	}
@@ -430,11 +451,15 @@ func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 	// get the pk from the object based on the tag
 	v := reflect.ValueOf(obj)
 	if v.Kind() != reflect.Struct {
-		panic("sqlp: expected pointer to struct")
+		return fmt.Errorf("sqlp: expected pointer to struct")
 	}
 
 	// get the name first
-	pkCol, _ := getPkFieldInfo(v.Type())
+	pkCol, _, err := getPkFieldInfo(v.Type())
+	if err != nil {
+		err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for deletion"))
+		return err
+	}
 
 	// get the value
 	pk := v.FieldByName(pkCol).Interface()
@@ -447,7 +472,7 @@ func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 
 func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, err error) {
 	if db == nil {
-		panic(ErrNotSet)
+		return nil, ErrNotSet
 	}
 
 	query = strings.Replace(query, QueryReplace, "SELECT "+Columns[T](), 1)
@@ -455,7 +480,10 @@ func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, er
 		if len(args) == 0 {
 			return
 		}
-		query, args = InQuery(query, args)
+		query, args, err = InQuery(query, args)
+		if err != nil {
+			return
+		}
 	}
 
 	rows, err = db.Query(query, args...)
@@ -481,7 +509,7 @@ func sliceFromRows[T any](rows *sql.Rows) (slice []T, err error) {
 	return
 }
 
-func getPkFieldInfo(typ reflect.Type) (string, []int) {
+func getPkFieldInfo(typ reflect.Type) (string, []int, error) {
 	fieldInfoCacheLock.RLock()
 	finfo, ok := fieldInfoCache[typ.String()+AutoGenTagName]
 	fieldInfoCacheLock.RUnlock()
@@ -500,17 +528,17 @@ func getPkFieldInfo(typ reflect.Type) (string, []int) {
 		}
 
 		if len(finfo) != 1 {
-			panic("sqlp: expected exactly one primary key")
+			return "", nil, fmt.Errorf("sqlp: expected exactly one primary key; got %d", len(finfo))
 		}
 	}
 
 	// ToDo: 1.23?
 	// https://github.com/golang/go/issues/61900
 	for col, idx := range finfo {
-		return col, idx
+		return col, idx, nil
 	}
 
-	return "", nil
+	return "", nil, nil
 }
 
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
@@ -575,7 +603,7 @@ func doScan[T any](dest *T, rows Rows) error {
 	destv := reflect.ValueOf(dest)
 	typ := destv.Type()
 	if typ.Kind() != reflect.Ptr || typ.Elem().Kind() != reflect.Struct {
-		panic(fmt.Errorf("dest must be pointer to struct; got %T", destv))
+		return fmt.Errorf("dest must be pointer to struct; got %T", destv)
 	}
 
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
@@ -637,19 +665,29 @@ func joinOrErr(err, nErr error) error {
 	return err
 }
 
-func prepareInsert[T any](src T) (string, []any) {
-	colNames, values, _ := prepareColumns(src, false, false)
-	return strings.Join(colNames, ", "), values
+func prepareInsert[T any](src T) (string, []any, error) {
+	colNames, values, _, err := prepareColumns(src, false, false)
+	if err != nil {
+		return "", nil, err
+	}
+	return strings.Join(colNames, ", "), values, nil
 }
 
-func prepareUpdate[T any](src T) (string, []any, string) {
-	colNames, values, pkCol := prepareColumns(src, false, true)
-	return strings.Join(colNames, "=?,") + "=?", values, pkCol
+func prepareUpdate[T any](src T) (string, []any, string, error) {
+	colNames, values, pkCol, err := prepareColumns(src, false, true)
+	if err != nil {
+		return "", nil, "", err
+	}
+
+	return strings.Join(colNames, "=?,") + "=?", values, pkCol, nil
 }
 
-func prepareColumns[T any](src T, includePk bool, pkLast bool) ([]string, []any, string) {
+func prepareColumns[T any](src T, includePk bool, pkLast bool) ([]string, []any, string, error) {
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
-	destv, typ := rft(src)
+	destv, typ, err := rft(src)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	fInfo := getFieldInfo(typ, includePk, true)
 
 	colNames := make([]string, 0, len(fInfo))
@@ -666,21 +704,26 @@ func prepareColumns[T any](src T, includePk bool, pkLast bool) ([]string, []any,
 	var pkCol string
 	if pkLast {
 		var pkIdx []int
-		pkCol, pkIdx = getPkFieldInfo(typ)
+		var err error
+		pkCol, pkIdx, err = getPkFieldInfo(typ)
+		if err != nil {
+			err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for deletion"))
+			return nil, nil, "", err
+		}
 		values = append(values, destv.FieldByIndex(pkIdx).Interface())
 	}
 
-	return colNames, values, pkCol
+	return colNames, values, pkCol, nil
 }
 
-func rft[T any](src T) (reflect.Value, reflect.Type) {
+func rft[T any](src T) (reflect.Value, reflect.Type, error) {
 	// reflect the value and check if dest is of the correct type
 	destv := reflect.ValueOf(src)
 	typ := destv.Type()
 	if typ.Kind() != reflect.Struct {
-		panic(fmt.Errorf("dest must a struct; got %T", destv))
+		return reflect.Value{}, nil, fmt.Errorf("dest must a struct; got %T", destv)
 	}
-	return destv, typ
+	return destv, typ, nil
 }
 
 // ——————————————————————————————————————————————————————————————————————————————
