@@ -89,22 +89,6 @@ func SetDatabase(sqldb *sql.DB) {
 	db = sqldb
 }
 
-// Scan scans the next row from rows in to a struct pointed to by dest. The struct type
-// should have exported fields tagged with the "sql" tag. Columns from row which are not
-// mapped to any struct fields are ignored. Struct fields which have no matching column
-// in the result set are left unchanged.
-// Deprecated: Use Query-functions.
-func Scan[T any](dest *T, rows Rows) error {
-	return doScan(dest, rows)
-}
-
-// Columns returns a string containing a sorted, comma-separated list of column names as
-// defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
-// Deprecated: Use Query-functions.
-func Columns[T any]() string {
-	return strings.Join(cols[T](true, false), ", ")
-}
-
 func InQuery(query string, args []any) (string, []any, error) {
 	// for now, we expect that there is only one of these.
 	if strings.Count(query, InQueryReplace) > 1 {
@@ -208,7 +192,7 @@ func QueryRowDb[T any](db *sql.DB, query string, args ...any) (result T, err err
 		err = sql.ErrNoRows
 		return
 	}
-	err = Scan[T](&result, rows)
+	err = doScan[T](&result, rows)
 	return
 }
 
@@ -475,7 +459,7 @@ func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, er
 		return nil, ErrNotSet
 	}
 
-	query = strings.Replace(query, QueryReplace, "SELECT "+Columns[T](), 1)
+	query = strings.Replace(query, QueryReplace, "SELECT "+columns[T](), 1)
 	if strings.Contains(query, InQueryReplace) {
 		if len(args) == 0 {
 			return
@@ -498,7 +482,7 @@ func doQueryDb[T any](db *sql.DB, query string, args ...any) (rows *sql.Rows, er
 func sliceFromRows[T any](rows *sql.Rows) (slice []T, err error) {
 	for rows.Next() {
 		var stru T
-		err = Scan[T](&stru, rows)
+		err = doScan[T](&stru, rows)
 		if err != nil {
 			return
 		}
@@ -610,7 +594,7 @@ func doScan[T any](dest *T, rows Rows) error {
 	fInfo := getFieldInfo(typ.Elem(), true, false)
 
 	// Get the columns contained in the row
-	columns, err := rows.Columns()
+	cols, err := rows.Columns()
 	if err != nil {
 		return err
 	}
@@ -618,7 +602,7 @@ func doScan[T any](dest *T, rows Rows) error {
 	// Iterate the rows columns and map the column to the dest's field
 	var ptrsToScanInto []any
 	elem := destv.Elem()
-	for _, cName := range columns {
+	for _, cName := range cols {
 
 		// Get the field index for the column
 		idx, isMapped := fInfo[NameMapper(cName)]
@@ -638,7 +622,7 @@ func doScan[T any](dest *T, rows Rows) error {
 	return rows.Scan(ptrsToScanInto...)
 }
 
-func cols[T any](includePk bool, applyIgnore bool) []string {
+func getColumns[T any](includePk bool, applyIgnore bool) []string {
 	// ToDo: use reflect.TypeFor here, starting with Go 1.22 (?)
 	var v = reflect.TypeOf((*T)(nil))
 	fields := getFieldInfo(v.Elem(), includePk, applyIgnore)
@@ -751,4 +735,10 @@ func inQuery(amountOfValues int) string {
 	attrs := strings.Repeat(", ?", amountOfValues)
 	attrs = strings.TrimPrefix(attrs, ", ")
 	return attrs
+}
+
+// columns returns a string containing a sorted, comma-separated list of column names as
+// defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
+func columns[T any]() string {
+	return strings.Join(getColumns[T](true, false), ", ")
 }

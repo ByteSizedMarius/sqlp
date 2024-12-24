@@ -85,7 +85,7 @@ func (r *testRows) addValue(c string, v interface{}) {
 
 func TestColumns(t *testing.T) {
 	e := "field_a, field_c, field_d, field_e"
-	c := Columns[testType]()
+	c := columns[testType]()
 
 	if c != e {
 		t.Errorf("expected %q got %q", e, c)
@@ -105,12 +105,12 @@ func TestScan(t *testing.T) {
 	e := testType{"a", "", "c", "d", EmbeddedType{"e"}}
 	e3 := testType3{"a", "", "c", "d", EmbeddedType{"e"}, NullStringTest{"f", true}}
 	var r testType
-	err := Scan(&r, rows)
+	err := doScan(&r, rows)
 	if err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 	r3 := testType3{}
-	if err := Scan(&r3, rows); err != nil {
+	if err = doScan(&r3, rows); err != nil {
 		t.Errorf("unexpected error: %s", err)
 	}
 	if r != e {
@@ -188,7 +188,10 @@ func TestDoInQuerySimple(t *testing.T) {
 	expectedQuery := "DELETE FROM table WHERE id IN (?, ?, ?)"
 	expectedArgs := []any{1, 2, 3}
 
-	actualQuery, actualArgs := InQuery(query, values)
+	actualQuery, actualArgs, err := InQuery(query, values)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 
 	if actualQuery != expectedQuery {
 		t.Errorf("expected %q got %q", expectedQuery, actualQuery)
@@ -205,7 +208,10 @@ func TestDoInQuery(t *testing.T) {
 	expectedQuery := "DELETE FROM table WHERE id=? AND name IN (?, ?, ?)"
 	expectedArgs := []any{0, 1, 2, 3}
 
-	actualQuery, actualArgs := InQuery(query, values)
+	actualQuery, actualArgs, err := InQuery(query, values)
+	if err != nil {
+		t.Errorf("unexpected error: %s", err)
+	}
 
 	if actualQuery != expectedQuery {
 		t.Errorf("expected %q got %q", expectedQuery, actualQuery)
