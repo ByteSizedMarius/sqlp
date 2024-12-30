@@ -33,9 +33,10 @@ var (
 
 const (
 	// TagName is the name of the tag to use on struct fields
-	TagName        = "sql"
-	AutoGenTagName = "sql-auto"
-	IgnoreTagName  = "sql-ign"
+	TagName           = "sql"
+	AutoGenTagName    = "sql-auto"
+	IgnoreTagName     = "sql-ign"
+	IgnoreEditTagName = "sql-ign-edit"
 
 	QueryReplace = "SELECT *"
 )
@@ -374,7 +375,7 @@ func getPkFieldInfo(typ reflect.Type) (string, []int, error) {
 
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
-func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool) fieldInfo {
+func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool, applyIgnoreEdit bool) fieldInfo {
 	key := fmt.Sprintf("%s%s%t%t", typ.String(), TagName, includePk, applyIgnore)
 	fieldInfoCacheLock.RLock()
 	finfo, ok := fieldInfoCache[key]
@@ -390,20 +391,37 @@ func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool) fieldInfo 
 		f := typ.Field(i)
 		tag := f.Tag.Get(TagName)
 
-		// check if the field has the primary key tag
-		_, isPk := f.Tag.Lookup(AutoGenTagName)
-		_, shouldIgnore := f.Tag.Lookup(IgnoreTagName)
-
 		// Skip unexported fields or fields marked with "-"
-		if f.PkgPath != "" || tag == "-" || (!includePk && isPk) || (applyIgnore && shouldIgnore) {
+		if f.PkgPath != "" || tag == "-" {
 			continue
+		}
+
+		if !includePk {
+			_, isPk := f.Tag.Lookup(AutoGenTagName)
+			if isPk {
+				continue
+			}
+		}
+
+		if applyIgnore {
+			_, shouldIgnore := f.Tag.Lookup(IgnoreTagName)
+			if shouldIgnore {
+				continue
+			}
+		}
+
+		if applyIgnoreEdit {
+			_, shouldIgnoreEdit := f.Tag.Lookup(IgnoreEditTagName)
+			if shouldIgnoreEdit {
+				continue
+			}
 		}
 
 		// Handle embedded structs
 		if f.Anonymous && f.Type.Kind() == reflect.Struct {
 			scannerType := reflect.TypeOf((*Scanner)(nil)).Elem()
 			if !reflect.PointerTo(f.Type).Implements(scannerType) {
-				for k, v := range getFieldInfo(f.Type, includePk, applyIgnore) {
+				for k, v := range getFieldInfo(f.Type, includePk, applyIgnore, applyIgnoreEdit) {
 					finfo[k] = append([]int{i}, v...)
 				}
 				continue
@@ -438,7 +456,7 @@ func doScan[T any](dest *T, rows Rows) error {
 	}
 
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
-	fInfo := getFieldInfo(typ.Elem(), true, false)
+	fInfo := getFieldInfo(typ.Elem(), true, false, false)
 
 	// Get the columns contained in the row
 	cols, err := rows.Columns()
@@ -469,10 +487,10 @@ func doScan[T any](dest *T, rows Rows) error {
 	return rows.Scan(ptrsToScanInto...)
 }
 
-func getColumns[T any](includePk bool, applyIgnore bool) []string {
+func getColumns[T any](includePk bool, applyIgnore bool, applyIgnoreEdit bool) []string {
 	// ToDo: use reflect.TypeFor here, starting with Go 1.22 (?)
 	var v = reflect.TypeOf((*T)(nil))
-	fields := getFieldInfo(v.Elem(), includePk, applyIgnore)
+	fields := getFieldInfo(v.Elem(), includePk, applyIgnore, applyIgnoreEdit)
 
 	names := make([]string, 0, len(fields))
 	for f := range fields {
@@ -497,7 +515,7 @@ func joinOrErr(err, nErr error) error {
 }
 
 func prepareInsert[T any](src T) (string, []any, error) {
-	colNames, values, _, err := prepareColumns(src, false, false)
+	colNames, values, _, err := prepareColumns(src, false, false, false)
 	if err != nil {
 		return "", nil, err
 	}
@@ -505,7 +523,7 @@ func prepareInsert[T any](src T) (string, []any, error) {
 }
 
 func prepareUpdate[T any](src T) (string, []any, string, error) {
-	colNames, values, pkCol, err := prepareColumns(src, false, true)
+	colNames, values, pkCol, err := prepareColumns(src, false, true, true)
 	if err != nil {
 		return "", nil, "", err
 	}
@@ -513,13 +531,13 @@ func prepareUpdate[T any](src T) (string, []any, string, error) {
 	return strings.Join(colNames, "=?,") + "=?", values, pkCol, nil
 }
 
-func prepareColumns[T any](src T, includePk bool, pkLast bool) ([]string, []any, string, error) {
+func prepareColumns[T any](src T, includePk bool, pkLast bool, applyIgnoreEdit bool) ([]string, []any, string, error) {
 	// Get the dest's fieldInfo. FieldInfo maps the sql-tag to the fields index.
 	destv, typ, err := rft(src)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	fInfo := getFieldInfo(typ, includePk, true)
+	fInfo := getFieldInfo(typ, includePk, true, applyIgnoreEdit)
 
 	colNames := make([]string, 0, len(fInfo))
 	values := make([]any, 0, len(fInfo))
@@ -559,5 +577,5 @@ func rft[T any](src T) (reflect.Value, reflect.Type, error) {
 // columns returns a string containing a sorted, comma-separated list of column names as
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
 func columns[T any]() string {
-	return strings.Join(getColumns[T](true, false), ", ")
+	return strings.Join(getColumns[T](true, false, false), ", ")
 }
