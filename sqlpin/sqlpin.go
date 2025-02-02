@@ -3,6 +3,7 @@ package sqlpin
 import (
 	"fmt"
 	"github.com/ByteSizedMarius/sqlp/sqlputil"
+	"reflect"
 	"strings"
 )
 
@@ -18,12 +19,27 @@ func InQuery(query string, args []any) (string, []any, error) {
 
 	// if the IN is the only argument, we can just replace it
 	if (strings.Count(query, "?") + strings.Count(query, InQueryReplace)) == 1 {
-		if len(args) == 0 || len(sqlputil.ToAny(args[0])) == 0 {
+		// Handle no args case
+		if len(args) == 0 {
 			newQuery := strings.Replace(query, InQueryReplace, "= FALSE", 1)
 			return newQuery, nil, nil
 		}
-		arg := sqlputil.ToAny(args[0])
-		newQuery := strings.Replace(query, InQueryReplace, "IN ("+sqlputil.BuildPlaceholders(len(arg))+")", 1)
+
+		// Check if the argument is a list
+		v := reflect.ValueOf(args[0])
+		if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
+			// If it's an empty list, return FALSE
+			if v.Len() == 0 {
+				newQuery := strings.Replace(query, InQueryReplace, "= FALSE", 1)
+				return newQuery, nil, nil
+			}
+
+			// It's a non-empty list, so flatten it to become our new args
+			newQuery := strings.Replace(query, InQueryReplace, "IN ("+sqlputil.BuildPlaceholders(v.Len())+")", 1)
+			return newQuery, sqlputil.ToAny(args[0]), nil
+		}
+
+		newQuery := strings.Replace(query, InQueryReplace, "IN ("+sqlputil.BuildPlaceholders(len(args))+")", 1)
 		return newQuery, args, nil
 	}
 
@@ -47,7 +63,6 @@ func InQuery(query string, args []any) (string, []any, error) {
 		newArgs := append(args[:argIndex], args[argIndex+1:]...)
 		return newQuery, newArgs, nil
 	}
-
 	newArgs := replaceWithFlatten(args, argList, argIndex)
 
 	// edit the query
