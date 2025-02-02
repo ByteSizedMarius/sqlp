@@ -18,7 +18,12 @@ func InQuery(query string, args []any) (string, []any, error) {
 
 	// if the IN is the only argument, we can just replace it
 	if (strings.Count(query, "?") + strings.Count(query, InQueryReplace)) == 1 {
-		newQuery := strings.Replace(query, InQueryReplace, "IN ("+sqlputil.BuildPlaceholders(len(args))+")", 1)
+		if len(args) == 0 || len(sqlputil.ToAny(args[0])) == 0 {
+			newQuery := strings.Replace(query, InQueryReplace, "= FALSE", 1)
+			return newQuery, nil, nil
+		}
+		arg := sqlputil.ToAny(args[0])
+		newQuery := strings.Replace(query, InQueryReplace, "IN ("+sqlputil.BuildPlaceholders(len(arg))+")", 1)
 		return newQuery, args, nil
 	}
 
@@ -35,7 +40,14 @@ func InQuery(query string, args []any) (string, []any, error) {
 	if len(args) <= argIndex {
 		return "", nil, fmt.Errorf("sqlp: not enough arguments for in query")
 	}
+
 	argList := sqlputil.ToAny(args[argIndex])
+	if len(argList) == 0 {
+		newQuery := strings.Replace(query, InQueryReplace, "= FALSE", 1)
+		newArgs := append(args[:argIndex], args[argIndex+1:]...)
+		return newQuery, newArgs, nil
+	}
+
 	newArgs := replaceWithFlatten(args, argList, argIndex)
 
 	// edit the query
