@@ -16,11 +16,7 @@ var (
 	// NameMapper is the function used to convert struct fields which do not have sql tags
 	// into database column names.
 	//
-	// The default mapper converts field names to lower case. If instead you would prefer
-	// field names converted to snake case, simply assign sqlp.ToSnakeCase to the variable:
-	//
-	//	sqlp.NameMapper = sqlp.ToSnakeCase
-	//
+	// The default mapper converts field names to lower case.
 	// Alternatively for a custom mapping, any func(string) string can be used instead.
 	NameMapper = strings.ToLower
 
@@ -33,9 +29,17 @@ var (
 
 const (
 	// TagName is the name of the tag to use on struct fields
-	TagName           = "sql"
-	AutoGenTagName    = "sql-auto"
-	IgnoreTagName     = "sql-ign"
+	TagName = "sql"
+
+	// AutoGenTagName is the name of the tag to use on struct fields to indicate that it is a primary key
+	AutoGenTagName = "sql-auto"
+
+	// IgnoreTagName is the name of the tag to use on struct fields to indicate that it should be ignored for all operations
+	// (insert, update, delete)
+	// todo: use value of this tag to configure for which methods to ignore instead of IgnoreEditTageName
+	IgnoreTagName = "sql-ign"
+
+	// IgnoreEditTagName is the name of the tag to use on struct fields to indicate that it should be ignored for edit operations, but not insert
 	IgnoreEditTagName = "sql-ign-edit"
 
 	QueryReplace = "SELECT *"
@@ -66,15 +70,15 @@ func init() {
 	fieldInfoCache = make(map[string]fieldInfo)
 }
 
-func InsertRdb[T Repo](db *sql.DB, obj T) (int, error) {
-	return InsertDb(db, obj, obj.TableName())
+func InsertDb[T Repo](db *sql.DB, obj T) (int, error) {
+	return insertHelper(db, obj, obj.TableName())
 }
 
-func UpdateRdb[T Repo](db *sql.DB, obj T) error {
-	return UpdateDb(db, obj, obj.TableName())
+func UpdateDb[T Repo](db *sql.DB, obj T) error {
+	return updateHelper(db, obj, obj.TableName())
 }
 
-func DeleteRdb[T Repo](db *sql.DB, obj T) error {
+func DeleteDb[T Repo](db *sql.DB, obj T) error {
 	// get the pk from the object based on the tag
 	v := reflect.ValueOf(obj)
 	if v.Kind() != reflect.Struct {
@@ -90,7 +94,52 @@ func DeleteRdb[T Repo](db *sql.DB, obj T) error {
 
 	// get the value
 	pk := v.FieldByName(pkCol).Interface()
-	return DeleteDb[T](db, pk, obj.TableName())
+	return deleteHelper[T](db, pk, obj.TableName())
+}
+
+func GetRdb[T Repo](db *sql.DB) ([]T, error) {
+	query := "SELECT * FROM " + table[T]()
+	return QueryDb[T](db, query)
+}
+
+func GetWhereRdb[T Repo](db *sql.DB, where string, args ...any) ([]T, error) {
+	query, err := whereBuilder("SELECT * FROM "+table[T](), where)
+	if err != nil {
+		return nil, err
+	}
+
+	return QueryDb[T](db, query, args...)
+}
+
+func GetSingleWhereRdb[T Repo](db *sql.DB, where string, args ...any) (res T, err error) {
+	query, err := whereBuilder("SELECT * FROM "+table[T](), where)
+	if err != nil {
+		return
+	}
+
+	return QueryRowDb[T](db, query, args...)
+}
+
+func GetPkDb[T Repo](db *sql.DB, id any) (res T, err error) {
+	v := reflect.TypeOf((*T)(nil)).Elem()
+	pkCol, _, err := getPkFieldInfo(v)
+	if err != nil {
+		err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for get"))
+		return
+	}
+
+	return GetSingleWhereRdb[T](db, fmt.Sprintf("WHERE %s=?", pkCol), id)
+}
+
+func DeletePkDb[T Repo](db *sql.DB, id any) error {
+	v := reflect.TypeOf((*T)(nil)).Elem()
+	pkCol, _, err := getPkFieldInfo(v)
+	if err != nil {
+		err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for deletion"))
+		return err
+	}
+
+	return deleteHelper[T](db, id, pkCol)
 }
 
 // QueryDb executes the given query using the global database handle and returns the resulting objects in a slice.
@@ -237,7 +286,7 @@ func InDb(db *sql.DB, query string, args ...any) (err error) {
 	return err
 }
 
-func InsertDb[T any](db *sql.DB, obj T, table string) (int, error) {
+func insertHelper[T any](db *sql.DB, obj T, table string) (int, error) {
 	if db == nil {
 		return 0, ErrNotSet
 	}
@@ -260,7 +309,7 @@ func InsertDb[T any](db *sql.DB, obj T, table string) (int, error) {
 	return int(id), nil
 }
 
-func UpdateDb[T any](db *sql.DB, obj T, table string) error {
+func updateHelper[T any](db *sql.DB, obj T, table string) error {
 	if db == nil {
 		panic(ErrNotSet)
 	}
@@ -278,7 +327,7 @@ func UpdateDb[T any](db *sql.DB, obj T, table string) error {
 	return nil
 }
 
-func DeleteDb[T any](db *sql.DB, pk any, table string) error {
+func deleteHelper[T any](db *sql.DB, pk any, table string) error {
 	if db == nil {
 		return ErrNotSet
 	}
@@ -578,4 +627,22 @@ func rft[T any](src T) (reflect.Value, reflect.Type, error) {
 // defined by the type s. s must be a struct that has exported fields tagged with the "sql" tag.
 func columns[T any]() string {
 	return strings.Join(getColumns[T](true, false, false), ", ")
+}
+
+func whereBuilder(query string, where string) (string, error) {
+	if where == "" {
+		return query, nil
+	}
+	if !strings.HasPrefix(where, "WHERE") && !strings.HasPrefix(where, "ORDER") {
+		return "", fmt.Errorf("where clause must start with WHERE/ORDER " + query)
+	}
+
+	return query + " " + where, nil
+}
+
+func table[T Repo]() string {
+	var instance T
+	instanceType := reflect.TypeOf(instance)
+	instanceValue := reflect.New(instanceType).Elem().Interface().(T)
+	return instanceValue.TableName()
 }
