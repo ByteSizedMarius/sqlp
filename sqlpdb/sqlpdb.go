@@ -94,7 +94,7 @@ func DeleteDb[T Repo](db *sql.DB, obj T) error {
 
 	// get the value
 	pk := v.FieldByName(pkCol).Interface()
-	return deleteHelper[T](db, pk, obj.TableName())
+	return deleteHelper[T](db, pk)
 }
 
 func GetRdb[T Repo](db *sql.DB) ([]T, error) {
@@ -132,14 +132,7 @@ func GetPkDb[T Repo](db *sql.DB, id any) (res T, err error) {
 }
 
 func DeletePkDb[T Repo](db *sql.DB, id any) error {
-	v := reflect.TypeOf((*T)(nil)).Elem()
-	pkCol, _, err := getPkFieldInfo(v)
-	if err != nil {
-		err = errors.Join(err, fmt.Errorf("sqlp: error getting primary key for deletion"))
-		return err
-	}
-
-	return deleteHelper[T](db, id, pkCol)
+	return deleteHelper[T](db, id)
 }
 
 // QueryDb executes the given query using the global database handle and returns the resulting objects in a slice.
@@ -327,7 +320,7 @@ func updateHelper[T any](db *sql.DB, obj T, table string) error {
 	return nil
 }
 
-func deleteHelper[T any](db *sql.DB, pk any, table string) error {
+func deleteHelper[T Repo](db *sql.DB, pk any) error {
 	if db == nil {
 		return ErrNotSet
 	}
@@ -341,10 +334,11 @@ func deleteHelper[T any](db *sql.DB, pk any, table string) error {
 		return err
 	}
 
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s=?", table, pkCol)
+	tbl := table[T]()
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s=?", tbl, pkCol)
 	_, err = db.Exec(query, pk)
 	if err != nil {
-		return fmt.Errorf("sqlp: error deleting from %s: %w (query: %s)", table, err, query)
+		return fmt.Errorf("sqlp: error deleting from %s: %w (query: %s)", tbl, err, query)
 	}
 	return nil
 }
@@ -425,7 +419,7 @@ func getPkFieldInfo(typ reflect.Type) (string, []int, error) {
 // getFieldInfo creates a fieldInfo for the provided type. Fields that are not tagged
 // with the "sql" tag and unexported fields are not included.
 func getFieldInfo(typ reflect.Type, includePk bool, applyIgnore bool, applyIgnoreEdit bool) fieldInfo {
-	key := fmt.Sprintf("%s%s%t%t", typ.String(), TagName, includePk, applyIgnore)
+	key := fmt.Sprintf("%s%s%t%t%t", typ.String(), TagName, includePk, applyIgnore, applyIgnoreEdit)
 	fieldInfoCacheLock.RLock()
 	finfo, ok := fieldInfoCache[key]
 	fieldInfoCacheLock.RUnlock()
